@@ -1,0 +1,309 @@
+@startuml
+
+enum ProviderType {
+    TENCENT_SMS
+    ALI_SMS
+    DISCORD_CHAT
+    OUTLOOK_EMAIL
+}
+
+enum HandlerType {
+    RATELIMITER
+    DEDUPLICATOR
+    PROVIDER
+}
+
+class User {
+    -id : String
+    -phone : String
+    -email : String
+    -discordId : String
+    -outlookId : String
+}
+
+class Receiver {
+    -receiver : String
+    -receiverType : String
+}
+
+class Message {
+    -sender : String
+    -receivers : List<Receiver>
+    -subject : String
+    -payload : Object
+    -receiverList : List<User>
+    -receiverIdList : List<String>
+    -msgBody : Object
+}
+
+class Template {
+    -id : String
+    -name : String
+    -content : String
+    -description : String
+    -script : String
+}
+
+class RateLimiterConfig {
+    -timespan : TimeSpan
+    -limit : Integer
+}
+
+class DeduplicatorConfig {
+    -timespan : TimeSpan
+}
+
+class ProviderConfig {
+    -providerType : ProviderType
+    -template : Template
+}
+
+class WorkflowStepConfig {
+    -sequence : Integer
+    -handlerType : HandlerType
+    -providerConfig : ProviderConfig
+    -rateLimiterConfig : RateLimiterConfig
+    -deduplicatorConfig : DeduplicatorConfig
+}
+
+class WorkflowConfig {
+    -workflowId : String
+    -workflowCode : String
+    -workflowName : String
+    -workflowStepConfigs : List<WorkflowStepConfig>
+}
+
+abstract class ChainHandler {
+    #nextHandler : ChainHandler
+    +setNext(handler : ChainHandler)
+    +handle(message: Message)
+}
+
+class RateLimiter extends ChainHandler {
+    +handle(message: Message)
+}
+
+class Deduplicator extends ChainHandler {
+    +handle(message: Message)
+}
+
+class ProviderHandler extends ChainHandler {
+    -compositeReceiverResolver : CompositeReceiverResolver
+    +handle(message: Message)
+}
+
+class ChainHandlerFactory {
+    +getHandler(handlerType: HandlerType, workflowStepConfig : WorkflowStepConfig) : ChainHandler
+}
+
+class MessageSendService {
+    -messageQueue : MessageQueue
+    +processAndSend(message : Message, workflowConfig : WorkflowConfig)
+}
+
+WorkflowConfig "1" o-- "N" WorkflowStepConfig : contains
+WorkflowStepConfig o-- HandlerType
+WorkflowStepConfig o-- ProviderConfig
+WorkflowStepConfig o-- RateLimiterConfig
+WorkflowStepConfig o-- DeduplicatorConfig
+ProviderFactory "1" -- "N" Provider : creates
+ChainHandlerFactory "1" -- "N" ChainHandler : creates
+MessageListener "1" -- "1" ChainHandlerFactory : uses
+MessageSendService "1" -- "1" WorkflowConfig : uses
+MessageSendService "1" -- "N" Message : uses
+Message "1" -- "N" Receiver : contains
+Message "1" -- "N" User : contains
+ProviderConfig "1" -- "1" ProviderType : contains
+ProviderConfig "1" o-- "1" Template : contains
+ChainHandler -- ChainHandler : next *
+
+
+interface TemplateRenderer {
+    -template : Template
+    +loadTemplate(template : Template) : void
+    +render(payload : Object) : String
+}
+
+class TencentSMSTemplateRenderer implements TemplateRenderer {
+    -template : Template
+    +loadTemplate(template : Template) : void
+    +render(payload : Object) : String
+}
+
+class AliSMSTemplateRenderer implements TemplateRenderer {
+    -template : Template
+    +loadTemplate(template : Template) : void
+    +render(payload : Object) : String
+}
+
+class DiscordChatTemplateRenderer implements TemplateRenderer {
+    -template : Template
+    +loadTemplate(template : Template) : void
+    +render(payload : Object) : String
+}
+
+class OutlookEmailTemplateRenderer implements TemplateRenderer {
+    -template : Template
+    +loadTemplate(template : Template) : void
+    +render(payload : Object) : String
+}
+
+interface ReceiverResolver {
+    +resolve(receiver : Receiver) : List<User>
+    +resolveAll(receiverList : List<Receiver>) : List<User>
+}
+
+class RoleReceiverResolver implements ReceiverResolver {
+    +resolve(receiver : Receiver) : List<User>
+    +resolveAll(receiverList : List<Receiver>) : List<User>
+}
+
+class GroupReceiverResolver implements ReceiverResolver {
+    +resolve(receiver : Receiver) : List<User>
+    +resolveAll(receiverList : List<Receiver>) : List<User>
+}
+
+class UserReceiverResolver implements ReceiverResolver {
+    +resolve(receiver : Receiver) : List<User>
+    +resolveAll(receiverList : List<Receiver>) : List<User>
+}
+
+class CompositeReceiverResolver implements ReceiverResolver {
+    -resolvers : List<ReceiverResolver>
+    +resolve(receiver : Receiver) : List<User>
+    +resolveAll(receiverList : List<Receiver>) : List<User>
+}
+
+CompositeReceiverResolver "1" o-- "*" ReceiverResolver
+
+interface UserFormatter {
+    +format(userList : List<User>) : List<String>
+}
+
+class TencentSMSUserFormatter implements UserFormatter {
+    +format(userList : List<User>) : List<String>
+}
+
+class AliSMSUserFormatter implements UserFormatter {
+    +format(userList : List<User>) : List<String>
+}
+
+class DiscordChatUserFormatter implements UserFormatter {
+    +format(userList : List<User>) : List<String>
+}
+
+class OutlookEmailUserFormatter implements UserFormatter {
+    +format(userList : List<User>) : List<String>
+}
+
+
+class ProviderFactory {
+    -providers : Map<ProviderType, Provider>
+
+    +registerProvider(providerType : ProviderType, provider : Provider) : void
+'    {
+'        providers.put(providerType, provider);
+'    }
+    +getProvider(providerConfig : ProviderConfig) : Provider
+'    {
+'        return providers.get(providerConfig.providerType);
+'    }
+}
+
+
+interface Provider {
+    +loadTemplate(template : Template)
+    +prepareAndSend(message : Message)
+}
+
+abstract class AbstractProvider {
+    #userFormatter : UserFormatter
+    #templateRenderer : TemplateRenderer
+    +loadTemplate(template : Template) : void
+'    {
+'        templateRenderer.loadTemplate(template);
+'    }
+    +prepareAndSend(message : Message)
+'    {
+'        loadTemplate(template : Template)
+'        preparePayload(message)
+'        prepareReceiverIdList(message)
+'        doSend(message)
+'    }
+    -prepareReceiverIdList(message : Message) : void
+'    {
+'        message.setReceiverIdList(userFormatter.format(message.getReceiverList()));
+'    }
+    -preparePayload(message : Message) : void
+'    {
+'        message.setMsgBody(templateRenderer.render(message.getPayload()));
+'    }
+    #doSend(message : Message) : void
+}
+
+abstract class AbstractSMSProvider extends AbstractProvider {
+    #doSend(message : Message)
+}
+
+abstract class AbstractEmailProvider extends AbstractProvider {
+    #doSend(message : Message)
+}
+
+abstract class AbstractChatProvider extends AbstractProvider {
+    #doSend(message : Message)
+}
+
+class TencentSMSProvider extends AbstractSMSProvider {
+    #doSend(message : Message) : void
+}
+
+class AliSMSProvider extends AbstractSMSProvider {
+    #doSend(message : Message) : void
+}
+
+class DiscordChatProvider extends AbstractChatProvider {
+    #doSend(message : Message) : void
+}
+
+class OutlookEmailProvider extends AbstractEmailProvider {
+    #doSend(message : Message) : void
+}
+
+ProviderHandler "1" -- "1" ProviderFactory : uses
+ProviderHandler "1" -- "1" ProviderConfig : uses
+AbstractProvider "1" o-- "1" TemplateRenderer : uses
+AbstractProvider "1" o-- "1" UserFormatter : uses
+AbstractProvider -up-|> Provider
+
+
+ProviderHandler "1" -- "1" CompositeReceiverResolver : uses
+
+
+class MessageQueue {
+    -queue : Queue<Message>
+    +pushMessage(message : Message) : void
+    +pullMessage() : Message
+}
+
+class MessageListener {
+    -queue : MessageQueue
+    -handler : ChainHandler
+    -logService : LogService
+    +onMessage()
+}
+
+class LogService {
+    +logStartProcessing(message : Message) : void
+    +logEndProcessing(message : Message) : void
+    +logError(message : Message, error : Exception) : void
+}
+
+MessageQueue "1" o-- "N" Message : contains
+MessageSendService "1" -- "1" MessageQueue : sends message to
+MessageListener "1" -- "1" MessageQueue : listens to
+MessageListener "1" -- "1" ChainHandler : uses
+MessageListener "1" -- "1" LogService : uses
+
+
+
+@enduml
